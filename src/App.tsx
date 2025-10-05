@@ -1,79 +1,127 @@
-import { useState } from 'react';
-import { SpaceScene } from './components/SpaceScene';
-import { ExoplanetForm } from './components/ExoplanetForm';
-import { SystemSelector } from './components/SystemSelector';
-import { LoadingAnimation } from './components/LoadingAnimation';
-import { PredictionResult } from './components/PredictionResult';
-import { ExoplanetData, StarSystem } from './types/exoplanet';
-import { predictExoplanet } from './services/api';
+import { useState, useEffect, useMemo } from 'react';
+import { DynamicStarSystem } from './components/DynamicStarSystem';
+import { Sidebar } from './components/Sidebar';
+import { PlanetDetailModal } from './components/PlanetDetailModal';
+import { LoadingScreen } from './components/LoadingScreen';
+import { ExoplanetSystem, PlanetData, FilterType, ThemeMode } from './types/exoplanet';
+import { fetchExoplanetSystems } from './services/exoplanetApi';
 
 function App() {
-  const [currentSystem, setCurrentSystem] = useState<StarSystem>('kepler');
-  const [isLoading, setIsLoading] = useState(false);
-  const [predictionResult, setPredictionResult] = useState<number | null>(null);
-  const [detectionResult, setDetectionResult] = useState<'detected' | 'non-exoplanet' | null>(null);
+  const [systems, setSystems] = useState<ExoplanetSystem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+  const [selectedPlanet, setSelectedPlanet] = useState<PlanetData | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<FilterType>('all');
+  const [selectedMethod, setSelectedMethod] = useState('all');
+  const [orbitAnimationActive, setOrbitAnimationActive] = useState(true);
+  const [theme, setTheme] = useState<ThemeMode>('dark');
 
-  const handleSystemChange = (system: StarSystem) => {
-    setCurrentSystem(system);
-    setPredictionResult(null);
-    setDetectionResult(null);
-  };
+  useEffect(() => {
+    loadSystems();
+  }, []);
 
-  const handleFormSubmit = async (data: ExoplanetData) => {
-    setIsLoading(true);
-    setPredictionResult(null);
-    setDetectionResult(null);
-
+  const loadSystems = async () => {
+    setLoading(true);
     try {
-      const result = await predictExoplanet(data);
-
-      setTimeout(() => {
-        setIsLoading(false);
-        setPredictionResult(result.prediction);
-        setDetectionResult(result.prediction === 2 ? 'detected' : 'non-exoplanet');
-      }, 2000);
+      const data = await fetchExoplanetSystems();
+      setSystems(data);
+      if (data.length > 0) {
+        setSelectedSystemId(data[0].id);
+      }
     } catch (error) {
-      console.error('Prediction error:', error);
-      setIsLoading(false);
-      alert(error instanceof Error ? error.message : 'An error occurred during prediction');
+      console.error('Failed to load systems:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleReset = () => {
-    setPredictionResult(null);
-    setDetectionResult(null);
+  const discoveryMethods = useMemo(() => {
+    const methods = new Set<string>();
+    systems.forEach(system => {
+      if (system.discoveryMethod) {
+        methods.add(system.discoveryMethod);
+      }
+    });
+    return Array.from(methods);
+  }, [systems]);
+
+  const filteredSystems = useMemo(() => {
+    return systems.filter(system => {
+      const matchesSearch = searchQuery === '' ||
+        system.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        system.planets.some(p =>
+          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.koiNumber?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+
+      const matchesMethod = selectedMethod === 'all' ||
+        system.discoveryMethod === selectedMethod;
+
+      const matchesType = filterType === 'all' ||
+        system.planets.some(p => p.type === filterType);
+
+      return matchesSearch && matchesMethod && matchesType;
+    });
+  }, [systems, searchQuery, selectedMethod, filterType]);
+
+  const selectedSystem = useMemo(() => {
+    return filteredSystems.find(s => s.id === selectedSystemId) || filteredSystems[0];
+  }, [filteredSystems, selectedSystemId]);
+
+  const handlePlanetSelect = (planet: PlanetData) => {
+    setSelectedPlanet(planet);
   };
 
+  const handleThemeToggle = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  if (loading) {
+    return <LoadingScreen theme={theme} />;
+  }
+
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-black">
-      <SpaceScene
-        currentSystem={currentSystem}
-        isLoading={isLoading}
-        detectionResult={detectionResult}
+    <div className={`relative w-full h-screen overflow-hidden ${theme === 'dark' ? 'bg-black' : 'bg-gray-50'}`}>
+      <Sidebar
+        systems={filteredSystems}
+        selectedSystemId={selectedSystemId}
+        onSystemSelect={setSelectedSystemId}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        filterType={filterType}
+        onFilterChange={setFilterType}
+        discoveryMethods={discoveryMethods}
+        selectedMethod={selectedMethod}
+        onMethodChange={setSelectedMethod}
+        orbitAnimationActive={orbitAnimationActive}
+        onToggleAnimation={() => setOrbitAnimationActive(!orbitAnimationActive)}
+        theme={theme}
+        onThemeToggle={handleThemeToggle}
       />
 
-      <SystemSelector
-        currentSystem={currentSystem}
-        onSystemChange={handleSystemChange}
-      />
+      <div className="absolute left-80 right-0 top-0 bottom-0">
+        {selectedSystem && (
+          <DynamicStarSystem
+            system={selectedSystem}
+            orbitAnimationActive={orbitAnimationActive}
+            onPlanetSelect={handlePlanetSelect}
+            theme={theme}
+          />
+        )}
+      </div>
 
-      <ExoplanetForm
-        onSubmit={handleFormSubmit}
-        isLoading={isLoading}
-      />
-
-      {isLoading && <LoadingAnimation />}
-
-      {predictionResult !== null && (
-        <PredictionResult
-          prediction={predictionResult}
-          onReset={handleReset}
+      {selectedPlanet && (
+        <PlanetDetailModal
+          planet={selectedPlanet}
+          onClose={() => setSelectedPlanet(null)}
+          theme={theme}
         />
       )}
 
-      <div className="fixed bottom-4 left-4 glass-panel rounded-lg px-4 py-2 z-10">
-        <p className="text-xs text-gray-400">
-          Exoplanet Detection System v1.0
+      <div className={`fixed bottom-4 right-4 ${theme === 'dark' ? 'glass-panel' : 'bg-white border border-gray-300'} rounded-lg px-4 py-2 z-10`}>
+        <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+          Exoplanet Visualization Dashboard • {systems.length} Systems Loaded
         </p>
       </div>
     </div>
