@@ -1,4 +1,4 @@
-import { Search, Filter, Globe2, Play, Pause, Moon, Sun } from 'lucide-react';
+import { Search, Filter, Globe as Globe2, Play, Pause, Moon, Sun } from 'lucide-react';
 import { FilterType, ThemeMode, ExoplanetSystem } from '../types/exoplanet';
 
 interface SidebarProps {
